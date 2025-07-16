@@ -154,80 +154,98 @@ ggplot(flujo_pct,
 
 ```
 
-```{r diagramadeflujo, include=FALSE}
-library(tidyverse)
-library(ggforce)
+```{r  dolor , include=FALSE} 
+summary(datos$`el dolor ...`)
+library(tidyr)
+library(dplyr)
+datos$dolor<-datos$`el dolor ...`
+#Crear una versión en formato largo
+datos_long <- datos %>%
+  separate_rows(dolor, sep = ",\\s*")  # separa por coma y espacio
 
-# Preparar datos
-flujo <- datos %>%
-  rename(
-    durante = `sensacion_tabla`,
-    despues = `al finalizar la remada te sientes`
-  ) %>%
-  filter(!is.na(durante), !is.na(despues)) %>%
-  mutate(
-    durante = recode(durante,
-                     "seguro, equilibrado y relajado" = "SER",
-                     "fuerte, resistente y contracturado" = "FRC",
-                     "fuerte, seguro y cómodo" = "FSC",
-                     "inseguro, tenso y contracturado" = "ITC"),
-    despues = recode(despues,
-                     "renovado y relajado" = "RR",
-                     "cansado, dolorido y agotado" = "CDA",
-                     "activo y dinámico" = "AD")
-  ) %>%
-  count(durante, despues) %>%
-  group_by(durante) %>%
-  mutate(pct = round(100 * n / sum(n), 1)) %>%
-  ungroup()
+# Verificar las categorías únicas
+unique(datos_long$dolor)
+datos_long %>%
+  count(dolor) %>%
+  arrange(desc(n))
+library(ggplot2)
 
-# Paso 2: Calcular porcentajes dentro de cada categoría de salida
-flujo <- flujo %>%
-  group_by(durante) %>%
-  mutate(pct = round(n / sum(n) * 100, 1)) %>%
-  ungroup()
+datos_long %>%
+  count(dolor) %>%
+  ggplot(aes(x = reorder(dolor, n), y = n)) +
+  geom_col(fill = "#0072B2") +
+  coord_flip() +
+  labs(
+    title = "Distribución de las respuestas sobre el dolor",
+    x = "Respuesta",
+    y = "Cantidad de personas"
+  ) +
+  theme_minimal()
+datos_long %>%
+  count(anios_practica, dolor) %>%
+  tidyr::pivot_wider(names_from = dolor, values_from = n, values_fill = 0)
+```
 
-# Paso 3: Asignar posiciones para graficar
-tot_durante <- flujo %>%
-  count(durante, wt = n) %>%
-  mutate(x = 1, y = seq_along(durante))
+```{r tiempo de experiencia y % que practica con dolor , include=FALSE} 
 
-tot_despues <- flujo %>%
-  count(despues, wt = n) %>%
-  mutate(x = 3, y = seq_along(despues))
+datos_long %>%
+  count(anios_practica, dolor) %>%
+  ggplot(aes(x = anios_practica, y = n, fill = dolor)) +
+  geom_col(position = "fill") +  # o position = "stack"
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Distribución de respuestas sobre el dolor según años de práctica",
+    x = "Años de práctica",
+    y = "Proporción",
+    fill = "Dolor"
+  ) +
+  theme_minimal()
 
-# Paso 4: Preparar coordenadas para líneas
-flujo_coords <- flujo %>%
-  left_join(tot_durante, by = "durante") %>%
-  rename(x1 = x, y1 = y) %>%
-  left_join(tot_despues, by = "despues") %>%
-  rename(x2 = x, y2 = y) %>%
-  mutate(label_x = 2,
-         label_y = (y1 + y2)/2,
-         label = paste0(pct, "%"))
+table(datos$anios_practica)
+```
 
-# Paso 5: Crear gráfico
-ggplot() +
-  # Nodos de salida
-  geom_point(data = tot_durante, aes(x = x, y = y, size = n), color = "#1f78b4", alpha = 0.7) +
-  geom_text(data = tot_durante, aes(x = x - 0.1, y = y, label = durante), hjust = 1) +
+```{r entrenamiento vs dolor, include=FALSE} 
 
-  # Nodos de llegada
-  geom_point(data = tot_despues, aes(x = x, y = y, size = n), color = "#33a02c", alpha = 0.7) +
-  geom_text(data = tot_despues, aes(x = x + 0.1, y = y, label = despues), hjust = 0) +
 
-  # Curvas de transición
-  geom_curve(data = flujo_coords,
-             aes(x = x1, y = y1, xend = x2, yend = y2, size = n),
-             curvature = 0.25, alpha = 0.4, color = "gray30") +
+datos <- datos %>%
+  mutate(entrenamiento_alto_rendimiento = if_else(
+  str_detect(tolower(SUP), "race|entrenador"),
+  "Sí", "No"
+))
+library(tidyr)
 
-  # Etiquetas de porcentaje
-  geom_text(data = flujo_coords,
-            aes(x = label_x, y = label_y, label = label),
-            size = 3.5, color = "black") +
+datos_long <- datos %>%
+  separate_rows(dolor, sep = ",\\s*")
+library(ggplot2)
 
-  scale_size(range = c(2, 10), guide = "none") +
-  theme_void() +
-  ggtitle("Transición emocional durante y después de la práctica")
 
+datos_long %>%
+  count(entrenamiento_alto_rendimiento, dolor) %>%
+  ggplot(aes(x = factor(entrenamiento_alto_rendimiento), y = n, fill = dolor)) +
+  geom_col(position = "fill") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Distribución de respuestas sobre el dolor según tipo de entrenamiento",
+    x = "Entrenamiento de alto rendimiento (1 = Sí, 0 = No)",
+    y = "Proporción",
+    fill = "Dolor"
+  ) +
+  theme_minimal()
+
+
+
+datos_long %>%
+  count(entrenamiento_alto_rendimiento, dolor) %>%
+  ggplot(aes(x = entrenamiento_alto_rendimiento, y = n, fill = dolor)) +
+  geom_col(position = "fill") +  # o position = "stack"
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Distribución de respuestas sobre el dolor según tipo de entrenamiento",
+    x = "entrenamiento_alto_rendimiento",
+    y = "Proporción",
+    fill = "Dolor"
+  ) +
+  theme_minimal()
+
+table(datos$entrenamiento_alto_rendimiento)
 ```
