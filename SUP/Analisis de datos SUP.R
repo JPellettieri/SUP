@@ -1,0 +1,243 @@
+
+  ```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(readxl)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(GGally)
+library(corrplot)
+
+# Cargar archivo Excel
+datos <- read_excel("Lesiones en el SUP (respuestas).xlsx")
+```
+
+# Analisis años de practica y seguridad sobre la tabla
+Niveles: 
+  * Menos de 1
+* 1 a 3
+* 3 a 5
+* 5 a 8 
+* Mas de 8
+
+La inseguridad sobre la tabla disminuye significativa tras el pirmer año de practica. A los 8 años ya ningun encuestado sintio inseguridad sobre la tabla.
+
+```{r inseguridad, include=FALSE}  
+# Renombrar columnas claves para simplificar
+datos <- datos %>%
+  rename(
+    anios_practica = `Años de práctica del SUP`,
+    sensacion_tabla = `sobre la tabla te sientes`
+  )
+
+# Reordenar niveles de la variable de práctica
+datos$anios_practica <- factor(
+  datos$anios_practica,
+  levels = c("menos de 1", "1 a 3", "3 a 5", "5 a 8", "mas de 8")
+)
+
+table(datos$anios_practica)
+
+# Variable binaria: se considera "inseguro" si menciona inseguridad, miedo, falta de equilibrio, etc.
+datos <- datos %>%
+  mutate(
+    inseguro = case_when(
+      str_detect(str_to_lower(sensacion_tabla), "inseguro") ~ "Sí",
+      is.na(sensacion_tabla) ~ NA_character_,
+      TRUE ~ "No"
+    )
+  )
+
+
+prop.table(table(datos$anios_practica, datos$inseguro), margin = 1) * 100
+
+# Tabla de conteo total por grupo de años
+tabla_n <- datos %>%
+  group_by(anios_practica) %>%
+  summarise(n_total = n())
+
+# Tabla de proporciones (% inseguridad)
+tabla_prop <- prop.table(table(datos$anios_practica, datos$inseguro), margin = 1) * 100
+tabla_df <- as.data.frame(tabla_prop)
+colnames(tabla_df) <- c("anios_practica", "inseguro", "porcentaje")
+
+# Filtrar solo los que respondieron "Sí"
+tabla_df_inseguro <- tabla_df %>%
+  filter(inseguro == "Sí") %>%
+  left_join(tabla_n, by = "anios_practica") %>%
+  mutate(etiqueta = paste0(round(porcentaje, 1), "% (n=", n_total, ")"))
+
+# Gráfico con etiquetas
+ggplot(tabla_df_inseguro, aes(x = anios_practica, y = porcentaje)) +
+  geom_col(fill = "#FF9999") +
+  geom_text(aes(label = etiqueta), vjust = -0.5, size = 4.5) +
+  labs(
+    title = "Porcentaje de personas que se sienten inseguras según años de práctica",
+    x = "Años de práctica en SUP",
+    y = "% que se sienten inseguras"
+  ) +
+  theme_minimal() +
+  ylim(0, 100)
+```
+Los que se sienten inseguros terminan contracturados /cansados? 
+  # Como se sienten despues segun como se seiten mientras hacen sup
+  
+  | Categoría de entrada               | Código |
+  | ---------------------------------- | ------ |
+  | seguro, equilibrado y relajado     | SER    |
+  | fuerte, resistente y contracturado | FRC    |
+  | fuerte, seguro y cómodo            | FSC    |
+  | inseguro, tenso y contracturado    | ITC    |
+  
+  | Categoría de salida         | Código |
+  | --------------------------- | ------ |
+  | renovado y relajado         | RR     |
+  | cansado, dolorido y agotado | CDA    |
+  | activo y dinámico           | AD     |
+  
+  ```{r situacion final segun como se sienten durante la practica, include=FALSE} 
+library(tidyverse)
+library(ggalluvial)
+
+# Paso 1: Preparar datos con porcentaje de salida
+flujo_pct <- datos %>%
+  rename(
+    durante = `sensacion_tabla`,
+    despues = `al finalizar la remada te sientes`
+  ) %>%
+  filter(!is.na(durante), !is.na(despues)) %>%
+  mutate(
+    durante = recode(durante,
+                     "seguro, equilibrado y relajado" = "SER",
+                     "fuerte, resistente y contracturado" = "FRC",
+                     "fuerte, seguro y cómodo" = "FSC",
+                     "inseguro, tenso y contracturado" = "ITC"),
+    despues = recode(despues,
+                     "renovado y relajado" = "RR",
+                     "cansado, dolorido y agotado" = "CDA",
+                     "activo y dinámico" = "AD")
+  ) %>%
+  count(durante, despues) %>%
+  group_by(durante) %>%
+  mutate(pct = round(n / sum(n) * 100, 1),
+         label = paste0(pct, "%")) %>%
+  ungroup()
+
+# Paso 2: Calcular posición vertical (y) acumulada para cada flujo
+flujo_pct <- flujo_pct %>%
+  group_by(durante) %>%
+  arrange(durante, desc(despues)) %>%  # Ajustar según orden deseado
+  mutate(ypos = cumsum(n) - n/2) %>%
+  ungroup()
+
+# Paso 3: Crear gráfico con etiquetas bien ubicadas
+ggplot(flujo_pct,
+       aes(axis1 = durante, axis2 = despues, y = n)) +
+  geom_alluvium(aes(fill = durante), width = 1/12, alpha = 0.8) +
+  geom_stratum(width = 1/12, fill = "gray90", color = "black") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 3) +
+  # Colocar etiquetas justo al comienzo de cada flujo
+  geom_text(aes(x = 1.05, y = ypos, label = label),
+            size = 3, color = "black", hjust = 0, inherit.aes = FALSE) +
+  scale_x_discrete(limits = c("Durante", "Después"), expand = c(.05, .05)) +
+  labs(y = "Cantidad de personas",
+       title = "Flujos emocionales antes y después de la práctica") +
+  theme_minimal()
+
+```
+
+```{r  dolor , include=FALSE} 
+summary(datos$`el dolor ...`)
+library(tidyr)
+library(dplyr)
+datos$dolor<-datos$`el dolor ...`
+#Crear una versión en formato largo
+datos_long <- datos %>%
+  separate_rows(dolor, sep = ",\\s*")  # separa por coma y espacio
+
+# Verificar las categorías únicas
+unique(datos_long$dolor)
+datos_long %>%
+  count(dolor) %>%
+  arrange(desc(n))
+library(ggplot2)
+
+datos_long %>%
+  count(dolor) %>%
+  ggplot(aes(x = reorder(dolor, n), y = n)) +
+  geom_col(fill = "#0072B2") +
+  coord_flip() +
+  labs(
+    title = "Distribución de las respuestas sobre el dolor",
+    x = "Respuesta",
+    y = "Cantidad de personas"
+  ) +
+  theme_minimal()
+datos_long %>%
+  count(anios_practica, dolor) %>%
+  tidyr::pivot_wider(names_from = dolor, values_from = n, values_fill = 0)
+```
+
+```{r tiempo de experiencia y % que practica con dolor , include=FALSE} 
+
+datos_long %>%
+  count(anios_practica, dolor) %>%
+  ggplot(aes(x = anios_practica, y = n, fill = dolor)) +
+  geom_col(position = "fill") +  # o position = "stack"
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Distribución de respuestas sobre el dolor según años de práctica",
+    x = "Años de práctica",
+    y = "Proporción",
+    fill = "Dolor"
+  ) +
+  theme_minimal()
+
+table(datos$anios_practica)
+```
+
+```{r entrenamiento vs dolor, include=FALSE} 
+
+
+datos <- datos %>%
+  mutate(entrenamiento_alto_rendimiento = if_else(
+    str_detect(tolower(SUP), "race|entrenador"),
+    "Sí", "No"
+  ))
+library(tidyr)
+
+datos_long <- datos %>%
+  separate_rows(dolor, sep = ",\\s*")
+library(ggplot2)
+
+
+datos_long %>%
+  count(entrenamiento_alto_rendimiento, dolor) %>%
+  ggplot(aes(x = factor(entrenamiento_alto_rendimiento), y = n, fill = dolor)) +
+  geom_col(position = "fill") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Distribución de respuestas sobre el dolor según tipo de entrenamiento",
+    x = "Entrenamiento de alto rendimiento (1 = Sí, 0 = No)",
+    y = "Proporción",
+    fill = "Dolor"
+  ) +
+  theme_minimal()
+
+
+
+datos_long %>%
+  count(entrenamiento_alto_rendimiento, dolor) %>%
+  ggplot(aes(x = entrenamiento_alto_rendimiento, y = n, fill = dolor)) +
+  geom_col(position = "fill") +  # o position = "stack"
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Distribución de respuestas sobre el dolor según tipo de entrenamiento",
+    x = "entrenamiento_alto_rendimiento",
+    y = "Proporción",
+    fill = "Dolor"
+  ) +
+  theme_minimal()
+
+table(datos$entrenamiento_alto_rendimiento)
+```
